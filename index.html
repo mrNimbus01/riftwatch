@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RiftWatch — East African Rift Valley Seismic Monitor</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Courier New', monospace; background: #0a0a0a; color: #e0e0e0; }
+        #map { height: 100vh; width: 100vw; }
+        .info-panel {
+            position: absolute; bottom: 20px; left: 20px; z-index: 1000;
+            background: rgba(10,10,10,0.9); padding: 12px 18px; border-radius: 6px;
+            border: 1px solid #333; font-size: 13px; max-width: 300px;
+        }
+        .info-panel h2 { margin: 0 0 6px 0; font-size: 16px; color: #ff6b35; }
+        .info-panel p { margin: 4px 0; }
+        .blink { animation: blink 1.5s infinite; }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="info-panel">
+        <h2>RiftWatch <span class="blink">●</span> LIVE</h2>
+        <p id="quake-count">Loading...</p>
+        <p id="latest-quake"></p>
+        <p style="font-size:10px;color:#777;">Region: 5°S–15°N, 25°E–50°E</p>
+        <p style="font-size:10px;color:#555;">Data: USGS Earthquake Catalog</p>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize map centered on the Rift Valley
+        const map = L.map('map').setView([1.5, 37.5], 6);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '© OpenStreetMap, © CartoDB',
+            maxZoom: 18
+        }).addTo(map);
+
+        // USGS API query for East African Rift region, past 7 days, mag 2.5+
+        const usgsURL = 'https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson' +
+            '&minlatitude=-5&maxlatitude=15&minlongitude=25&maxlongitude=50' +
+            '&minmagnitude=2.5&starttime=' + new Date(Date.now() - 7*24*60*60*1000).toISOString();
+
+        async function fetchQuakes() {
+            try {
+                const response = await fetch(usgsURL);
+                const data = await response.json();
+                const quakes = data.features;
+                
+                document.getElementById('quake-count').textContent = 
+                    `Events (7 days, M2.5+): ${quakes.length}`;
+                
+                if (quakes.length > 0) {
+                    const latest = quakes[0];
+                    document.getElementById('latest-quake').textContent = 
+                        `Latest: M${latest.properties.mag} — ${latest.properties.place} (${new Date(latest.properties.time).toLocaleTimeString()})`;
+                    
+                    // Plot all quakes on map
+                    quakes.forEach(q => {
+                        const coords = [q.geometry.coordinates[1], q.geometry.coordinates[0]];
+                        const mag = q.properties.mag;
+                        const radius = Math.max(mag * 3, 4);
+                        const color = mag >= 5 ? '#ff3333' : mag >= 4 ? '#ff9933' : '#ffcc00';
+                        
+                        L.circleMarker(coords, {
+                            radius: radius,
+                            fillColor: color,
+                            color: '#fff',
+                            weight: 1,
+                            fillOpacity: 0.7
+                        }).addTo(map)
+                          .bindPopup(`<strong>M${mag}</strong><br>${q.properties.place}<br>${new Date(q.properties.time).toLocaleString()}`);
+                    });
+                }
+            } catch (error) {
+                document.getElementById('quake-count').textContent = 'Data fetch failed. Retrying...';
+                console.error('USGS fetch error:', error);
+            }
+        }
+
+        fetchQuakes();
+        
+        // Auto-refresh every 5 minutes
+        setInterval(fetchQuakes, 300000);
+    </script>
+</body>
+</html>
